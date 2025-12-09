@@ -7,6 +7,7 @@
 // 06.02.2024 BMG refine Tx / Rx, refine adc_single_measure()
 // 02.10.2024 BMG rev 3.1 update, more address up16 +D, ADC remap, PTC refine
 // 19.09.2025 BMG added daclsb&=0xfc; in w case
+// 09.12.2025 BMG  case 'i' no mor spam, palka_set add ACK, cmdl[0]=='&' fixed star->cmd
 //-----------------------------------------------------------------------------------------------------
 
 
@@ -33,7 +34,7 @@
 //-----------------------------------------------------------------------------------------------------
 
 //#define dselfaddr 11;
-#define revision 312190925; // rev PCB, rev FW
+#define revision 313091225; // rev PCB, rev FW
 #define revisionsector "x" //revsector 
 
 #define RBSIZE	16
@@ -439,7 +440,7 @@ if(cmdl[0]=='w') {  // write dac data w 3 S ff ff.
       if(counter!=7 || argsread!=4 || ca!=oa) continue;}
     
     if(cmdl[0]=='&'){//set palka all~ &38. mean brd 3 case 8 set all palka off
-      argsread = sscanf(cmdl, "%c%c%d",&star,&ca,&cd1);                  // get command, addr. and 0-9 case
+      argsread = sscanf(cmdl, "%c%c%d",&cmd,&ca,&cd1);                  // get command, addr. and 0-9 case
       if(counter!=4 || argsread!=3 || ca!=oa) continue;}
     
     if(cmdl[0]=='*'){//to all~ *R.
@@ -522,10 +523,44 @@ if(cmdl[0]=='w') {  // write dac data w 3 S ff ff.
       
       break;
       
-    case 'i': //read PTC
+case 'i': // read PTC
+{
+    delay(20000); // Small optional delay
+
+    // --- 1. Read ADC raw values ---
+    float adc_ptc = adc_multiple_measure(0);   // PTC voltage channel
+    float adc_vcc = adc_multiple_measure(1);   // Supply voltage channel
+
+    // --- 2. Convert ADC codes to real voltages ---
+    float VCC  = adc_vcc * dDac;   // dDac = Vref / 4095
+    float Vout = adc_ptc * dDac;
+
+    // --- 3. Basic input validation ---
+    if (Vout >= VCC || VCC <= 0.0f) {
+        sendMessage("%c PTC ADC error: VCC=%f Vout=%f\r\n", 
+                    oa, VCC, Vout);
+        break;
+    }
+
+    // --- 4. Compute PTC resistance ---
+    float Rth = R_ref * (Vout / (VCC - Vout));   // R_ref ˜ 992 O
+
+    // --- 5. Compute temperature (Pt1000 linear model) ---
+    const float R0    = 1000.0f;     // Pt1000 nominal at 0 °C
+    const float alpha = 0.003850f;   // Temperature coefficient
+
+    float temperature = (Rth / R0 - 1.0f) / alpha;
+
+    // --- 6. Output formatted measurement result ---
+    sendMessage("%c VCC %f Vout %f Rth %f T %f\r\n",
+                oa, VCC, Vout, Rth, temperature);
+}
+break;
       
-      for(idelay=0;idelay<300;idelay++)
-      {
+   /* case 'i': //read PTC
+      
+      //for(idelay=0;idelay<300;idelay++)
+     // {
         delay(20000);                       
         vta = adc_multiple_measure(0);
         delay(20000);
@@ -533,31 +568,24 @@ if(cmdl[0]=='w') {  // write dac data w 3 S ff ff.
         vcc_adc = adc_multiple_measure(1);
         //VCC = (vcc_adc * VCC_ref) / 4095;
         VCC = vcc_adc * dDac;
-        delay(20000);
-        delay(20000);
+
         //Vout = (adcValue * VCC) / 4095;
         Vout = adcValue * dDac;
         delay(20000);
         
         Rth = R_ref*(Vout / (VCC - Vout));
         delay(20000);
+        
         //temperature = 1.0 / (A + B * log(Rth) + C * pow(log(Rth), 3));
         temperature = (log(Rth / 1078.0) / alpha) + 20.0;
         
+        delay(20000);
+        sendMessage(" %c VCC %f Vout %f Rth %f  T %f\r\n",oa,VCC, Vout, Rth, temperature);
         
-        delay(20000);
-        sendMessage(" %c\r\n", oa);
-        sendMessage("VCC %f Vout %f Rth %f  T %f\r\n",VCC, Vout, Rth, temperature);
-        
-        delay(20000);
-        delay(20000);
-        delay(20000);
-        delay(20000);
-        delay(20000);
-        delay(20000);
-        delay(20000);
-      }     
-      break;          
+     // }     
+      break; 
+      
+      */
       
     case '=': 
       
@@ -1235,34 +1263,42 @@ unsigned int palka_set(uint8_t palka)
   case 0:
     PE_ODR_bit.ODR0 = 0; 
     PE_ODR_bit.ODR7 = 0;
+    sendMessage("0 case set ON\r\n");
     break;
   case 1:
     PE_ODR_bit.ODR1 = 0; 
     PE_ODR_bit.ODR6 = 0; 
+    sendMessage("1 case set ON\r\n");
     break;
   case 2:
     PE_ODR_bit.ODR2 = 0; 
     PC_ODR_bit.ODR7 = 0; 
+    sendMessage("2 case set ON\r\n");
     break;
   case 3:
     PE_ODR_bit.ODR3 = 0; 
     PC_ODR_bit.ODR6 = 0;
+    sendMessage("3 case set ON\r\n");
     break;
   case 4:
     PE_ODR_bit.ODR4 = 0; 
-    PC_ODR_bit.ODR5 = 0; 
+    PC_ODR_bit.ODR5 = 0;
+    sendMessage("4 case set ON\r\n");
     break;
   case 5:
     PE_ODR_bit.ODR5 = 0; 
-    PC_ODR_bit.ODR4 = 0; 
+    PC_ODR_bit.ODR4 = 0;
+    sendMessage("5 case set ON\r\n");
     break;
   case 6:
     PD_ODR_bit.ODR0 = 0; 
-    PC_ODR_bit.ODR3 = 0; 
+    PC_ODR_bit.ODR3 = 0;
+    sendMessage("6 case set ON\r\n");
     break;
   case 7:
     PD_ODR_bit.ODR1 = 0; 
-    PC_ODR_bit.ODR2 = 0;  
+    PC_ODR_bit.ODR2 = 0;
+    sendMessage("7 case set ON\r\n");
     break;
   case 8: //set all OFF
     
