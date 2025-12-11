@@ -28,6 +28,7 @@
 
 
 //#include <i2c_master_poll.h>
+#include "roll.h"
 
 //-----------------------------------------------------------------------------------------------------
 //Global constant deinitions
@@ -237,10 +238,11 @@ int main()
   USART1_CR2_bit.RIEN = 1;                  // interrupt r i e n
   
   asm("RIM");
-  //-------------------- END USART1 INIT------  
+  //-------------------- END USART1 INIT------
   CLK_PCKENR2_bit.PCKEN20 = 1;               // ADC clock enable
   init_adc();
-  
+  (void)roll();
+
   CLK_PCKENR1_bit.PCKEN17 = 1; // give clocking in DAC
   CLK_PCKENR2_bit.PCKEN25 = 1; // for acces to RI registers (clocking comparator)
   // RI_ASCR1_bit.AS4 = 0;
