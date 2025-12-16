@@ -8,6 +8,7 @@
 // 02.10.2024 BMG rev 3.1 update, more address up16 +D, ADC remap, PTC refine
 // 19.09.2025 BMG added daclsb&=0xfc; in w case
 // 09.12.2025 BMG  case 'i' no mor spam, palka_set add ACK, cmdl[0]=='&' fixed star->cmd
+// 16.12.2025 BMG added eevdac1 eevdac2 NINO thresholds are saved after restart 
 //-----------------------------------------------------------------------------------------------------
 
 
@@ -28,14 +29,13 @@
 
 
 //#include <i2c_master_poll.h>
-#include "roll.h"
 
 //-----------------------------------------------------------------------------------------------------
 //Global constant deinitions
 //-----------------------------------------------------------------------------------------------------
 
 //#define dselfaddr 11;
-#define revision 313091225; // rev PCB, rev FW
+#define revision 314161225; // rev PCB, rev FW
 #define revisionsector "x" //revsector 
 
 #define RBSIZE	16
@@ -120,9 +120,10 @@ void __eeprom_program_long(uint8_t __near * dst, uint32_t v)
  *(dst++) = *((uint8_t*)(&v) + 2);
  *dst = *((uint8_t*)(&v) + 3);  
 }
-
-__eeprom uint16_t eeV[16] = {4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095, 
-                             4095, 4095, 4095, 4095, 4095, 4095, 4095, 4095}; // store ch voltage on any change;
+__eeprom uint8_t eevdac1 = 42;   // Threshold DAC LEFT
+__eeprom uint8_t eevdac2 = 42;   // Threshold DAC RIGHT
+__eeprom uint16_t eeV[16] = {0, 0, 0, 0, 0, 0, 0, 0, 
+                             0, 0, 0, 0, 0, 0, 0, 0}; // store ch voltage on any change;
 typedef struct {
     uint8_t slave_addr;    // address DAC (right 0x48, left 0x49)
     uint8_t register_addr; // channel (1 0x08 - 8 0x0F)
@@ -138,8 +139,10 @@ const DAC_Channel channel_config[16] = {
 //-----------------------------------------------------------------------------------------------------
 //void WDT_Init(void);
 void initextdac(void);
+void SetThresholdAfterRestart(void);
 void SetDacAfterRestart(void);
 void EEPROM_Write(uint16_t __eeprom *address, uint16_t value);
+void EEPROM_Write8(uint8_t __eeprom *addr, uint8_t value);
 void setextdac(uint8_t dacchannel, uint8_t msb, uint8_t lsb);
 void sendMessage(const char *format, ...);    
 char determine_address(void);
@@ -238,11 +241,10 @@ int main()
   USART1_CR2_bit.RIEN = 1;                  // interrupt r i e n
   
   asm("RIM");
-  //-------------------- END USART1 INIT------
+  //-------------------- END USART1 INIT------  
   CLK_PCKENR2_bit.PCKEN20 = 1;               // ADC clock enable
   init_adc();
-  (void)roll();
-
+  
   CLK_PCKENR1_bit.PCKEN17 = 1; // give clocking in DAC
   CLK_PCKENR2_bit.PCKEN25 = 1; // for acces to RI registers (clocking comparator)
   // RI_ASCR1_bit.AS4 = 0;
@@ -349,6 +351,7 @@ int main()
   initextdac(); //DAC init
   //  init_adc();
   delay(1000);
+  SetThresholdAfterRestart();
   SetDacAfterRestart();
   //  dac_calibrator();
   //  DAC_CH1DHR8 = vdac1calib;
@@ -459,33 +462,40 @@ if(cmdl[0]=='w') {  // write dac data w 3 S ff ff.
     switch (cmd) 
     {
       
-    case '@': //set DAC by addres and side~  @3R044.
-      
-      if(side == 'L' ){
+    case '@': // set DAC by address and side ~ @3R044
+
+    if (side == 'L') {
         vdac1 = cd1;
         DAC_CH1DHR8 = vdac1;
-        sendMessage("%c %c %d\r\n", ca, side, vdac1); 
-        
-      }
-      else if(side == 'R'){
+
+        EEPROM_Write8(&eevdac1, vdac1);   // SAVE to EEPROM
+
+        sendMessage("%c %c %d\r\n", ca, side, vdac1);
+    }
+    else if (side == 'R') {
         vdac2 = cd1;
         DAC_CH2DHR8 = vdac2;
+
+        EEPROM_Write8(&eevdac2, vdac2);   // SAVE to EEPROM
+
         sendMessage("%c %c %d\r\n", ca, side, vdac2);
-        
-      }
-      else if(side == 'A'){
+    }
+    else if (side == 'A') {
         vdac1 = vdac2 = cd1;
+
         DAC_CH1DHR8 = vdac1;
         DAC_CH2DHR8 = vdac2;
-        sendMessage("%c %c %d\r\n", ca, side, vdac1); 
-        
-      }
-      else {
-        sendMessage("index error\r\n"); 
-        
-      }
-      
-      break;
+
+        EEPROM_Write8(&eevdac1, vdac1);
+        EEPROM_Write8(&eevdac2, vdac2);
+
+        sendMessage("%c %c %d\r\n", ca, side, vdac1);
+    }
+    else {
+        sendMessage("index error\r\n");
+    }
+
+    break;
       
     case '&': //set palka all~ &38. mean brd 3 case 8 set all palka off
       
@@ -515,8 +525,9 @@ if(cmdl[0]=='w') {  // write dac data w 3 S ff ff.
     case 'D': 
       sendMessage("ext.DAC id:%c channel values:\r\n", oa);
       for (uint8_t i = 0; i < 16; i++) {
-        sendMessage("Ch %X: 0x%04X\r\n", i, eeV[i]);
+        sendMessage("Ch %X: 0x%04X\r\n", i, eeV[i]);         
       }
+      sendMessage("thr.DAC L:%d R:%d\r\n", eevdac1, eevdac2);
       break;
       
     case 'R': 
@@ -678,6 +689,7 @@ void initextdac(void) {
   I2C_WriteData(0x49, data, sizeof(data));          // U6
 }
 
+
 void EEPROM_Write(uint16_t __eeprom *address, uint16_t value) {
     // ?????????????? EEPROM ??? ??????
      FLASH_DUKR = 0xAE;
@@ -687,6 +699,17 @@ void EEPROM_Write(uint16_t __eeprom *address, uint16_t value) {
     while (!(FLASH_IAPSR & MASK_FLASH_IAPSR_EOP));
 
     // ????????????? EEPROM ????? ??????
+    FLASH_IAPSR_bit.DUL=0;
+}
+
+void EEPROM_Write8(uint8_t __eeprom *addr, uint8_t value)
+{
+    FLASH_DUKR = 0xAE;
+    FLASH_DUKR = 0x56;
+   
+    *addr = value;
+    
+    while (!(FLASH_IAPSR & MASK_FLASH_IAPSR_EOP));
     FLASH_IAPSR_bit.DUL=0;
 }
 void setextdac(uint8_t dacchannel, uint8_t msb, uint8_t lsb) { 
@@ -714,6 +737,15 @@ void setextdac(uint8_t dacchannel, uint8_t msb, uint8_t lsb) {
     EEPROM_Write(&eeV[dacchannel], value);
 
     //sendMessage("DAC[%u] = 0x%04X ???????? ? EEPROM\r\n", dacchannel, value);
+}
+
+void SetThresholdAfterRestart(void)
+{
+
+    DAC_CH1DHR8 = eevdac1;
+    DAC_CH2DHR8 = eevdac2;
+
+    //sendMessage("Threshold restore: L=%d R=%d\r\n", vdac1, vdac2);
 }
 
 void SetDacAfterRestart() {
