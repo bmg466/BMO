@@ -8,7 +8,8 @@
 // 02.10.2024 BMG rev 3.1 update, more address up16 +D, ADC remap, PTC refine
 // 19.09.2025 BMG added daclsb&=0xfc; in w case
 // 09.12.2025 BMG  case 'i' no mor spam, palka_set add ACK, cmdl[0]=='&' fixed star->cmd
-// 16.12.2025 BMG added eevdac1 eevdac2 NINO thresholds are saved after restart 
+// 16.12.2025 BMG added eevdac1 eevdac2 NINO thresholds are saved after restart
+// 25.12.2025 BMG added delays for inits and restore data
 //-----------------------------------------------------------------------------------------------------
 
 
@@ -35,7 +36,7 @@
 //-----------------------------------------------------------------------------------------------------
 
 //#define dselfaddr 11;
-#define revision 314161225; // rev PCB, rev FW
+#define revision 315251225; // rev PCB, rev FW
 #define revisionsector "x" //revsector 
 
 #define RBSIZE	16
@@ -138,7 +139,6 @@ const DAC_Channel channel_config[16] = {
 //Function prototypes
 //-----------------------------------------------------------------------------------------------------
 //void WDT_Init(void);
-void initextdac(void);
 void SetThresholdAfterRestart(void);
 void SetDacAfterRestart(void);
 void EEPROM_Write(uint16_t __eeprom *address, uint16_t value);
@@ -348,11 +348,13 @@ int main()
   rev = revision;
   revs = revisionsector;
   dDac = VCC_ref / 4095;
-  initextdac(); //DAC init
-  //  init_adc();
-  delay(1000);
+  delay(10000);
+  initextdac(); //ext DAC init
+  delay(10000);
   SetThresholdAfterRestart();
+  delay(10000);
   SetDacAfterRestart();
+  delay(10000);
   //  dac_calibrator();
   //  DAC_CH1DHR8 = vdac1calib;
   wrptr = rdptr = inbuf;
